@@ -1,0 +1,7 @@
+{
+  "FullName": "ServerPerformance",
+  "Description": "Engine tuning (console variables, timed garbage collection, structure replication rate) and server performance stats",
+  "Version": 1.0,
+  "MinApiVersion": 2.1,
+  "Dependencies": []
+}

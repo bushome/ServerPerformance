@@ -1,0 +1,150 @@
+// ServerPerformance - commented configuration.
+//
+// This file holds the same settings and values as config.json, with an explanation on each one.
+// The plugin only reads config.json. Comments are allowed there too, so you can copy this file
+// over config.json if you prefer to keep the notes.
+//
+// After editing config.json, run ServerPerformance.Reload (RCON, or the in-game console as an
+// admin) to apply it without a restart. If the file has a mistake, the old settings stay active
+// and the error is written to the API log.
+{
+  // Timed garbage collection. The engine already collects garbage on its own; this asks it for an
+  // extra collection on a fixed schedule. The request is handed to the engine, which runs it at its
+  // next safe point in the frame, the same way the engine's own scheduled collections run.
+  "GarbageCollection": {
+    // false: no timed collections (ServerPerformance.ForceGC still works).
+    "AutoGC_Enabled": true,
+
+    // Minutes between timed collections, 1 to 1440. Counted from when the plugin loads.
+    "AutoGC_Interval_Minutes": 15,
+
+    // true: a full purge (everything unreachable is destroyed in that frame; a longer single frame).
+    // false: the engine purges incrementally over the next frames (shorter frames, slower to free).
+    "FullPurge": true
+  },
+
+  // Engine console variables to set, "name": value. Applied in name order when the server has a
+  // world loaded, and again after ServerPerformance.Reload. After setting each one the plugin reads
+  // it back from the engine and logs whether the engine accepted it, so a name that doesn't exist in
+  // this game build, or a variable that can only be set from an ini at startup, shows up in the log
+  // instead of silently doing nothing. ServerPerformance.CVars lists what the engine holds now.
+  //
+  // Values are numbers, true/false (sent as 1/0) or a single word. Names may only contain letters,
+  // digits, '.' and '_'.
+  //
+  // Removing a variable from this list and reloading puts it back to the value it had before this
+  // plugin first changed it. Unloading the plugin does the same for all of them.
+  //
+  // On ASE (Unreal Engine 4), gc.TimeBetweenPurgingPendingKillObjects is not a console variable; the
+  // plugin writes the engine's own setting for it instead, so it works on both games.
+  "ConsoleVariables": {
+    // ---- Optional, off: remove the leading // to try one (on the test server first) ----
+    //
+    // Adaptive replication: actors whose state isn't changing are checked for updates less often,
+    // down to their MinNetUpdateFrequency, and speed back up when they change. Cuts server CPU spent
+    // on replication with many actors. It is also what makes Structures.MinNetUpdateFrequency
+    // (below) do anything. Check the current value first with
+    // ServerPerformance.CVar net.UseAdaptiveNetUpdateFrequency
+    // "net.UseAdaptiveNetUpdateFrequency": 1,
+    //
+    // Low-memory GC: when free physical memory drops to this many MB, the engine collects every
+    // gc.LowMemory.TimeBetweenPurgingPendingKillObjects seconds instead of the normal interval
+    // (engine default 30). As far as can be told from engine source, "free" is the machine's free
+    // physical memory, which is shared by every server on the box (ServerPerformance.Stats shows it
+    // as "machine ... free"). 0 = off (engine default). Example: start collecting faster when the
+    // machine is down to 16 GB free.
+    // "gc.LowMemory.MemoryThresholdMB": 16384,
+    // "gc.LowMemory.TimeBetweenPurgingPendingKillObjects": 10,
+    //
+    // EXPERIMENTAL in the engine. Incremental reachability spreads the marking part of each
+    // collection over several frames (soft limit per frame below) instead of one long frame, which
+    // can remove GC stutter. Epic's own warning: game code must hold object references in a form
+    // this mode tracks, or objects can be collected while still in use. The game and every mod would
+    // have to comply, so only try it on the test server with the full mod list, and watch for
+    // crashes, vanishing items or dinos, or tames turning wild.
+    // "gc.AllowIncrementalReachability": 1,
+    // "gc.AllowIncrementalGather": 1,
+    // "gc.IncrementalReachabilityTimeLimit": 0.002,
+    //
+    // ---- Active ----
+
+    // Seconds between the engine's own garbage collections (engine default 60). Lower = smaller,
+    // more frequent collections.
+    "gc.TimeBetweenPurgingPendingKillObjects": 20,
+
+    // How many times the engine may skip a collection because it couldn't lock the object tables
+    // before it forces one (engine default 10).
+    "gc.NumRetriesBeforeForcingGC": 5,
+
+    // Groups an actor's objects into one GC cluster (engine default on). Only affects objects
+    // created after it is set; the value that counts most is the one at startup.
+    "gc.ActorClusteringEnabled": 1,
+
+    // Maximum physics substeps per frame (engine default 4). Fewer = less CPU, coarser physics.
+    "p.Chaos.MaxSubSteps": 2,
+
+    // Server frame-rate cap. 0 = no cap. The server's real tick rate is shown by
+    // ServerPerformance.Stats, so you can see what a change actually does.
+    "t.MaxFPS": 30
+  },
+
+  // Every this many seconds the plugin reads the variables above back from the engine and sets any
+  // that something else has changed (the change is logged). 0 = only set them on load and reload.
+  "ConsoleVariables_Reapply_Seconds": 300,
+
+  // Lower how often structures send updates to players (replication frequency). Less network and
+  // CPU on servers with many structures; a structure's changes can reach players later. Off by
+  // default: test it on a test server first. Only ever lowers: a structure already at or below the
+  // target is left alone. Turning it off and reloading, or unloading the plugin, puts every
+  // structure back to its class default.
+  "Structures": {
+    "Enabled": false,
+
+    // Updates per second for structures above this (0.2 = one every 5 seconds).
+    "NetUpdateFrequency": 0.2,
+
+    // Lowest rate the engine's adaptive replication may drop a structure to. Only has an effect
+    // while net.UseAdaptiveNetUpdateFrequency is 1 (see ConsoleVariables). ASA only; ASE's engine
+    // has no such setting and ignores it. Kept at or below NetUpdateFrequency.
+    "MinNetUpdateFrequency": 0.1,
+
+    // Seconds between passes, so newly placed structures are picked up too. 10 to 86400.
+    "CheckInterval_Seconds": 300,
+
+    // Structures whose class path contains any of these words (not case-sensitive) are left alone.
+    // Defaults cover things players expect to react straight away.
+    "ExcludeClassesContaining": [
+      "Turret",
+      "Door",
+      "Gate",
+      "Elevator",
+      "Lift",
+      "Teleporter",
+      "Transmitter"
+    ]
+  },
+
+  // Periodic stats, written to ServerPerformance_stats.log in this plugin's folder (one line each).
+  // ServerPerformance.Stats shows the same numbers on demand.
+  "Stats": {
+    // Seconds between stats lines. 0 = none (the command still works). The tick-rate figures in each
+    // line cover the time since the previous line.
+    "LogInterval_Seconds": 300,
+
+    // true: also write each stats line to the API log and console.
+    "AlsoWriteToApiLog": false,
+
+    // true: include dino and structure counts (a lookup of each, done only when stats are taken).
+    "CountDinosAndStructures": true,
+
+    // true: sample every player connection once a second and report total upload/download,
+    // ping, packet loss, and how often connections were bandwidth-limited (had more to send than
+    // their rate allowed). A high bandwidth-limited share points at the per-client rate limits
+    // (MaxClientRate / MaxInternetClientRate in Engine.ini) rather than the CPU.
+    "IncludeNetwork": true,
+
+    // The stats log starts a new file at this size and keeps this many old ones.
+    "LogFileMaxSize_MB": 5,
+    "LogFilesKept": 3
+  }
+}

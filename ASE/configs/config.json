@@ -1,0 +1,38 @@
+{
+  "GarbageCollection": {
+    "AutoGC_Enabled": true,
+    "AutoGC_Interval_Minutes": 15,
+    "FullPurge": true
+  },
+  "ConsoleVariables": {
+    "gc.TimeBetweenPurgingPendingKillObjects": 20,
+    "gc.NumRetriesBeforeForcingGC": 5,
+    "gc.ActorClusteringEnabled": 1,
+    "p.Chaos.MaxSubSteps": 2,
+    "t.MaxFPS": 30
+  },
+  "ConsoleVariables_Reapply_Seconds": 300,
+  "Structures": {
+    "Enabled": false,
+    "NetUpdateFrequency": 0.2,
+    "MinNetUpdateFrequency": 0.1,
+    "CheckInterval_Seconds": 300,
+    "ExcludeClassesContaining": [
+      "Turret",
+      "Door",
+      "Gate",
+      "Elevator",
+      "Lift",
+      "Teleporter",
+      "Transmitter"
+    ]
+  },
+  "Stats": {
+    "LogInterval_Seconds": 300,
+    "AlsoWriteToApiLog": false,
+    "CountDinosAndStructures": true,
+    "IncludeNetwork": true,
+    "LogFileMaxSize_MB": 5,
+    "LogFilesKept": 3
+  }
+}
