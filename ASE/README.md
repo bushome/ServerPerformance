@@ -139,13 +139,12 @@ Shipped values:
 | `gc.TimeBetweenPurgingPendingKillObjects` | `20` | `60` | Seconds between the engine's own collections. Lower = smaller, more frequent collections. Written to the engine setting directly on ASE. |
 | `gc.NumRetriesBeforeForcingGC` | `5` | `10` | Collections the engine may skip (object tables locked) before it forces one. |
 | `gc.ActorClusteringEnabled` | `1` | `1` | GC clusters per actor. Only affects objects created after it is set. |
-| `p.Chaos.MaxSubSteps` | `2` | `4` | Physics substeps per frame. Fewer = less CPU, coarser physics. |
 | `t.MaxFPS` | `30` | none | Server frame-rate cap. `0` = no cap. |
 
-The `gc.NumRetriesBeforeForcingGC`, `gc.ActorClusteringEnabled`, `p.Chaos.MaxSubSteps` and `t.MaxFPS`
-entries are Unreal Engine 5 variables; ASE's older engine may not have them (ASE has no Chaos physics at
-all), in which case the log shows them as `not found` and they do nothing. They stay in the shipped file
-so it is the same as the ASA one; remove them from your ASE servers' copy to keep the log clean.
+The `gc.NumRetriesBeforeForcingGC`, `gc.ActorClusteringEnabled` and `t.MaxFPS` entries are Unreal
+Engine 5 variables; ASE's older engine may not have them, in which case the log shows them as `not found`
+and they do nothing. They stay in the shipped file so it is the same as the ASA one; remove them from your
+ASE servers' copy to keep the log clean.
 
 **Optional variables, shipped switched off.** `config.commented.json` has these as commented-out lines
 ready to try (remove the `//`, copy into `config.json`, reload). They are for ASA's Unreal Engine 5; ASE's

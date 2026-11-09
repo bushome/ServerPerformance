@@ -126,7 +126,6 @@ Shipped values:
 | `gc.TimeBetweenPurgingPendingKillObjects` | `20` | `60` | Seconds between the engine's own collections. Lower = smaller, more frequent collections. |
 | `gc.NumRetriesBeforeForcingGC` | `5` | `10` | Collections the engine may skip (object tables locked) before it forces one. |
 | `gc.ActorClusteringEnabled` | `1` | `1` | GC clusters per actor. Only affects objects created after it is set. |
-| `p.Chaos.MaxSubSteps` | `2` | `4` | Physics substeps per frame. Fewer = less CPU, coarser physics. |
 | `t.MaxFPS` | `30` | none | Server frame-rate cap. `0` = no cap. |
 
 **Optional variables, shipped switched off.** `config.commented.json` has these as commented-out lines
@@ -138,6 +137,9 @@ ready to try (remove the `//`, copy into `config.json`, reload):
 | `gc.LowMemory.MemoryThresholdMB` | `16384` | Below this much free memory, the engine collects at the low-memory interval instead. As far as can be told from engine source this is the machine's free memory (shared by all servers on the box), the "machine ... free" figure in Stats. |
 | `gc.LowMemory.TimeBetweenPurgingPendingKillObjects` | `10` | Seconds between collections while in low-memory mode (engine default 30). |
 | `gc.AllowIncrementalReachability`, `gc.AllowIncrementalGather`, `gc.IncrementalReachabilityTimeLimit` | `1`, `1`, `0.002` | **Experimental in the engine.** Spreads each collection's marking over several frames to remove GC stutter. Epic warns that game code holding object references the old way can have objects collected while still in use; ARK and every mod would have to comply. Test server only, with the full mod list, watching for crashes, vanishing items or dinos, or tames turning wild. |
+
+Physics substepping is not on this list: in ASA it is a project setting compiled into the game, not a
+console variable (`p.Chaos.MaxSubSteps` does not exist), so a server can't change it.
 
 Any other console variable can be added. Some can only be set from an ini before the engine starts (the
 engine reports them as read-only, and the plugin logs `not applied`); those belong in `Engine.ini`

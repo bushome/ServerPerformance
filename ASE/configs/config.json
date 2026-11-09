@@ -8,7 +8,6 @@
     "gc.TimeBetweenPurgingPendingKillObjects": 20,
     "gc.NumRetriesBeforeForcingGC": 5,
     "gc.ActorClusteringEnabled": 1,
-    "p.Chaos.MaxSubSteps": 2,
     "t.MaxFPS": 30
   },
   "ConsoleVariables_Reapply_Seconds": 300,

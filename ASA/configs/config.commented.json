@@ -80,9 +80,6 @@
     // created after it is set; the value that counts most is the one at startup.
     "gc.ActorClusteringEnabled": 1,
 
-    // Maximum physics substeps per frame (engine default 4). Fewer = less CPU, coarser physics.
-    "p.Chaos.MaxSubSteps": 2,
-
     // Server frame-rate cap. 0 = no cap. The server's real tick rate is shown by
     // ServerPerformance.Stats, so you can see what a change actually does.
     "t.MaxFPS": 30
