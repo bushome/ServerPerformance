@@ -25,7 +25,7 @@ namespace Engine
 	// --------------------------------------------------------------------------------------------
 
 	inline constexpr const char* kFunctions[] = {
-		"UEngine.Exec(UWorld*,wchar_t*,FOutputDevice&)",
+		"FConsoleManager.ProcessUserConsoleInput(wchar_t*,FOutputDevice&,UWorld*)",
 		"UEngine.ForceGarbageCollection(bool)",
 		"Global.GetObjectsOfClass(UClass*,TArray<UObject*,TSizedDefaultAllocator<32>>&,bool,EObjectFlags,EInternalObjectFlags)",
 		"UClass.GetDefaultObject(bool)",
@@ -36,6 +36,7 @@ namespace Engine
 		"AActor.SetMinNetUpdateFrequency(float)",
 	};
 	inline constexpr const char* kData[] = {
+		"Global.IConsoleManager::Singleton",
 		"Global.GEngine",
 		"Global.GFrameCounter",
 		"Global.GUObjectArray",
@@ -117,18 +118,23 @@ namespace Engine
 		std::string output;
 	};
 
-	// Runs one engine console command on the game thread. Only call with text built from validated
-	// names and values (see Perf::IsValidCVarName / IsValidCVarValue).
+	// Runs one console-variable query or assignment on the game thread through the engine's console
+	// manager (FConsoleManager::ProcessUserConsoleInput), the part of the engine that handles
+	// "name" and "name value". UEngine::Exec is not used: on the ASA dedicated server it crashes
+	// (null read inside the engine) before reaching the console manager. Only call with text built
+	// from validated names and values (see Perf::IsValidCVarName / IsValidCVarValue).
 	inline ExecResult Exec(const std::string& command)
 	{
 		ExecResult result;
-		UEngine* engine = Globals::GEngine()();
-		if (engine == nullptr)
+		void* manager = *GetNativeDataPointerField<void**>("Global.IConsoleManager::Singleton");
+		if (manager == nullptr)
 			return result;
 
 		const std::wstring wide = AsaApi::Tools::Utf8Decode(command);
 		ExecOutput output;
-		result.handled = engine->Exec(AsaApi::GetApiUtils().GetWorld(), wide.c_str(), reinterpret_cast<FOutputDevice*>(&output));
+		result.handled = NativeCall<bool, const wchar_t*, ExecOutput*, UWorld*>(manager,
+			"FConsoleManager.ProcessUserConsoleInput(wchar_t*,FOutputDevice&,UWorld*)",
+			wide.c_str(), &output, AsaApi::GetApiUtils().GetWorld());
 		result.output = AsaApi::Tools::Utf8Encode(output.text);
 		return result;
 	}

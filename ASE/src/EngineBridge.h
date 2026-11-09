@@ -81,7 +81,8 @@ namespace Engine
 		struct Check { const char* name; bool ok; };
 		const Check checks[] = {
 			{ "Global.GEngine", HasData("Global.GEngine") },
-			{ "UEngine.Exec", HasFunction("UEngine.Exec") },
+			{ "Global.IConsoleManager::Singleton", HasData("Global.IConsoleManager::Singleton") },
+			{ "FConsoleManager.ProcessUserConsoleInput", HasFunction("FConsoleManager.ProcessUserConsoleInput") },
 			{ "UEngine.TimeBetweenPurgingPendingKillObjects", HasField("UEngine.TimeBetweenPurgingPendingKillObjects") },
 			{ "UWorld.ForceGarbageCollection", HasFunction("UWorld.ForceGarbageCollection") },
 			{ "Global.GFrameCounter", HasData("Global.GFrameCounter") },
@@ -108,7 +109,7 @@ namespace Engine
 		};
 
 		const bool engine = ok("Global.GEngine");
-		g_exec = engine && ok("UEngine.Exec");
+		g_exec = ok("Global.IConsoleManager::Singleton") && ok("FConsoleManager.ProcessUserConsoleInput");
 		g_purge_field = engine && ok("UEngine.TimeBetweenPurgingPendingKillObjects");
 		g_gc = ok("UWorld.ForceGarbageCollection");
 		g_frames = ok("Global.GFrameCounter");
@@ -174,21 +175,24 @@ namespace Engine
 		std::string output;
 	};
 
-	// Runs one engine console command on the game thread. Only call with text built from validated
-	// names and values (see Perf::IsValidCVarName / IsValidCVarValue).
+	// Runs one console-variable query or assignment on the game thread through the engine's console
+	// manager (FConsoleManager::ProcessUserConsoleInput), the part of the engine that handles
+	// "name" and "name value". Same path as the ASA build, where UEngine::Exec crashes on the
+	// dedicated server. Only call with text built from validated names and values (see
+	// Perf::IsValidCVarName / IsValidCVarValue).
 	inline ExecResult Exec(const std::string& command)
 	{
 		ExecResult result;
 		if (!Detail::g_exec)
 			return result;
-		UEngine* engine = Globals::GEngine()();
-		if (engine == nullptr)
+		void* manager = *GetNativeDataPointerField<void**>("Global.IConsoleManager::Singleton");
+		if (manager == nullptr)
 			return result;
 
 		const std::wstring wide = ArkApi::Tools::Utf8Decode(command);
 		ExecOutput output;
-		result.handled = NativeCall<bool, UWorld*, const wchar_t*, ExecOutput*>(engine, "UEngine.Exec",
-			ArkApi::GetApiUtils().GetWorld(), wide.c_str(), &output);
+		result.handled = NativeCall<bool, const wchar_t*, ExecOutput*, UWorld*>(manager, "FConsoleManager.ProcessUserConsoleInput",
+			wide.c_str(), &output, ArkApi::GetApiUtils().GetWorld());
 		result.output = ArkApi::Tools::Utf8Encode(output.text);
 		return result;
 	}
