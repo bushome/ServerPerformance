@@ -4,10 +4,13 @@
 //     engine to confirm they took, and re-checked every ConsoleVariables_Reapply_Seconds. The value
 //     each one had before this plugin changed it is kept and restored when it is removed from the
 //     config or the plugin unloads.
-//   * Timed garbage collection: a collection is requested from the engine every
-//     AutoGC_Interval_Minutes; the engine runs it at its next safe point in the frame.
+//   * Optional timed garbage collection (off by default): a collection is requested from the engine
+//     every AutoGC_Interval_Minutes; the engine runs it at its next safe point in the frame. The
+//     shipped config instead tunes ARK's own collection schedule through ConsoleVariables.
 //   * Optional structure replication pass: lowers NetUpdateFrequency on structures, never raises it,
 //     and puts the class defaults back when turned off or unloaded.
+//   * Hitch log: any one-second sample below Stats.HitchThreshold_TicksPerSecond is written to the
+//     stats log with its length, so a freeze can be matched to what ran at that moment.
 //   * Stats: real server tick rate (from the engine's frame counter), UObject counts, dino and
 //     structure counts, memory, and network totals sampled from every player connection (bandwidth,
 //     ping, packet loss, bandwidth-limited share), on demand and as a line in a rotating stats log.
@@ -109,6 +112,7 @@ namespace
 
 	Perf::TickWindow g_ticks;
 	Perf::NetWindow g_net;
+	int g_hitches = 0;   // samples below the hitch threshold in the current window
 	bool g_have_tick_sample = false;
 	unsigned long long g_last_frames = 0;
 	std::chrono::steady_clock::time_point g_last_tick_time;
@@ -123,6 +127,17 @@ namespace
 		{
 			const double seconds = std::chrono::duration<double>(now - g_last_tick_time).count();
 			g_ticks.Add(Perf::TicksPerSecond(g_last_frames, frames, seconds));
+
+			// A freeze arrives here as one long sample, so log it with its length.
+			if (g_settings_loaded && frames >= g_last_frames)
+			{
+				const std::optional<std::string> hitch = Perf::DescribeHitch(frames - g_last_frames, seconds, g_settings.hitch_threshold);
+				if (hitch)
+				{
+					++g_hitches;
+					Periodic("{}", *hitch);
+				}
+			}
 		}
 		g_have_tick_sample = true;
 		g_last_frames = frames;
@@ -139,6 +154,7 @@ namespace
 	{
 		g_ticks.Reset();
 		g_net.Reset();
+		g_hitches = 0;
 	}
 
 	// ------------------------------------------------------------------------------------------
@@ -418,6 +434,7 @@ namespace
 		s.players = Engine::PlayerCount();
 
 		s.tick_samples = g_ticks.Count();
+		s.hitches = g_hitches;
 		s.tick_avg = g_ticks.Average();
 		s.tick_min = g_ticks.Min();
 		s.tick_max = g_ticks.Max();

@@ -14,14 +14,14 @@ ______               __                                                         
 ```
 
 Server plugin for engine-level tuning and performance monitoring. It sets Unreal Engine console variables
-from its config and confirms with the engine that each one took, requests garbage collections on a
-schedule, can lower how often structures replicate, and reports the server's real tick rate, UObject
-counts, dino and structure counts and memory, on demand and in a rotating stats log. `ServerPerformance.CVar`
-reads or sets any console variable live, so values can be tried on a running server before they go into
-the config.
+from its config and confirms with the engine that each one took (the shipped config tunes ARK's own
+garbage-collection schedule), can lower how often structures replicate, and reports the server's real tick
+rate, UObject counts, dino and structure counts, memory and network, on demand and in a rotating stats log,
+with every server stall logged by time and length. `ServerPerformance.CVar` reads or sets any console
+variable live, so values can be tried on a running server before they go into the config.
 
-**Status: new.** Both versions are written; neither has run on a server yet. Test on the test server
-before the live cluster.
+**Status: in testing.** The ASA version runs on the test server (garbage-collection settings measured on a
+Lost Colony live save); the ASE version has not run on a server yet.
 
 | Folder | Game | Server API (submodule) | Player key |
 |---|---|---|---|

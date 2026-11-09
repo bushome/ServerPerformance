@@ -209,10 +209,11 @@ namespace Perf
 
 	struct Settings
 	{
-		// Garbage collection
-		bool auto_gc = true;
+		// Garbage collection requested by the plugin (off by default: the engine's own schedule,
+		// set through ConsoleVariables, does the work)
+		bool auto_gc = false;
 		int auto_gc_minutes = 15;
-		bool full_purge = true;
+		bool full_purge = false;
 
 		// Console variables, applied in this order
 		std::vector<CVarSetting> cvars;
@@ -230,6 +231,7 @@ namespace Perf
 		bool stats_to_api_log = false;
 		bool count_actors = true;
 		bool network = true;
+		double hitch_threshold = 25.0;   // a second below this many server frames is logged; 0 = off
 		int stats_log_max_mb = 5;
 		int stats_log_files = 3;
 
@@ -408,6 +410,7 @@ namespace Perf
 		ReadBool(stats, "AlsoWriteToApiLog", s.stats_to_api_log, "Stats.", w);
 		ReadBool(stats, "CountDinosAndStructures", s.count_actors, "Stats.", w);
 		ReadBool(stats, "IncludeNetwork", s.network, "Stats.", w);
+		ReadDouble(stats, "HitchThreshold_TicksPerSecond", s.hitch_threshold, 0.0, 1000.0, "Stats.", w);
 		ReadInt(stats, "LogFileMaxSize_MB", s.stats_log_max_mb, 1, 1024, "Stats.", w);
 		ReadInt(stats, "LogFilesKept", s.stats_log_files, 1, 50, "Stats.", w);
 
@@ -474,6 +477,21 @@ namespace Perf
 		if (seconds <= 0.0 || frames_after < frames_before)
 			return -1.0;
 		return static_cast<double>(frames_after - frames_before) / seconds;
+	}
+
+	// A stall: the server ran fewer than `threshold` frames per second over a sample. Samples are
+	// taken once per game second, so a freeze shows up as one long sample (e.g. 16 frames in 7.3 s)
+	// rather than several short ones. Returns the log text, or nothing when the sample is normal.
+	inline std::optional<std::string> DescribeHitch(unsigned long long frames, double seconds, double threshold)
+	{
+		if (threshold <= 0.0 || seconds <= 0.0)
+			return std::nullopt;
+		const double rate = static_cast<double>(frames) / seconds;
+		if (rate >= threshold)
+			return std::nullopt;
+		char buffer[160];
+		std::snprintf(buffer, sizeof(buffer), "Hitch: %llu frames in %.1f s (%.1f per second), ending now", frames, seconds, rate);
+		return std::string(buffer);
 	}
 
 	// ------------------------------------------------------------------------------------------
@@ -635,6 +653,7 @@ namespace Perf
 
 		// Tick rate over the current window
 		int tick_samples = 0;
+		int hitches = 0;   // samples below the hitch threshold in the window
 		double tick_avg = 0.0;
 		double tick_min = 0.0;
 		double tick_max = 0.0;
@@ -720,7 +739,7 @@ namespace Perf
 		out += "Uptime " + FormatDuration(s.uptime_seconds) + ", players " + Count(s.players) + "\n";
 		if (s.tick_samples > 0)
 			out += "Tick rate (last " + std::to_string(s.tick_samples) + "s): avg " + Tick(s.tick_avg) + ", min "
-				+ Tick(s.tick_min) + ", max " + Tick(s.tick_max) + "\n";
+				+ Tick(s.tick_min) + ", max " + Tick(s.tick_max) + ", hitches " + std::to_string(s.hitches) + "\n";
 		else
 			out += "Tick rate: no samples yet\n";
 		out += "UObjects: " + Count(s.uobjects) + " live, " + Count(s.uobject_slots) + " slots used of "
@@ -746,6 +765,7 @@ namespace Perf
 		using namespace Detail;
 		std::string out = "players=" + Count(s.players);
 		out += " tick_avg=" + Tick(s.tick_avg) + " tick_min=" + Tick(s.tick_min) + " tick_max=" + Tick(s.tick_max);
+		out += " hitches=" + std::to_string(s.hitches);
 		out += " uobjects=" + Count(s.uobjects) + " uobject_slots=" + Count(s.uobject_slots);
 		if (s.dinos >= 0) out += " dinos=" + Count(s.dinos);
 		if (s.structures >= 0) out += " structures=" + Count(s.structures);
@@ -780,7 +800,8 @@ namespace Perf
 		return {
 			{ "uptime_seconds", s.uptime_seconds },
 			{ "players", count_or_null(s.players) },
-			{ "tick", { { "samples", s.tick_samples }, { "avg", s.tick_avg }, { "min", s.tick_min }, { "max", s.tick_max } } },
+			{ "tick", { { "samples", s.tick_samples }, { "avg", s.tick_avg }, { "min", s.tick_min }, { "max", s.tick_max },
+				{ "hitches", s.hitches } } },
 			{ "uobjects", { { "live", count_or_null(s.uobjects) }, { "slots_used", count_or_null(s.uobject_slots) },
 				{ "capacity", count_or_null(s.uobject_capacity) }, { "outside_gc", count_or_null(s.objects_outside_gc) } } },
 			{ "dinos", count_or_null(s.dinos) },

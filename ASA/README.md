@@ -17,9 +17,14 @@ game thread.
   `ConsoleVariables_Reapply_Seconds` the plugin reads them again and sets back any that something else has
   changed. The value each variable had before the plugin first changed it is remembered: removing it from
   the config and reloading, or unloading the plugin, puts that value back.
-- **Timed garbage collection.** Every `AutoGC_Interval_Minutes` a collection is requested from the engine
-  (`UEngine::ForceGarbageCollection`), which runs it at its next safe point in the frame, as it does its
-  own scheduled collections. Nothing is collected from inside the plugin's timer.
+- **Garbage collection.** The shipped config tunes the engine's own collection schedule through
+  `ConsoleVariables` (see [Garbage collection on ARK](#garbage-collection-on-ark)). The plugin can also
+  request collections itself every `AutoGC_Interval_Minutes` (`UEngine::ForceGarbageCollection`; off by default),
+  which the engine runs at its next safe point in the frame. Nothing is collected from inside the
+  plugin's timer.
+- **Hitch log.** Every second in which the server runs fewer than `HitchThreshold_TicksPerSecond` frames
+  is written to the stats log the moment it ends, e.g. `Hitch: 16 frames in 7.3 s (2.2 per second)`. A
+  freeze shows as one line with its length, so it can be matched against the server log.
 - **Structures** (off by default). Every `CheckInterval_Seconds`, structures whose replication frequency
   is above `NetUpdateFrequency` are lowered to it (and `MinNetUpdateFrequency` likewise). Frequencies are
   never raised, and classes matching `ExcludeClassesContaining` are left alone. Turning it off and
@@ -108,9 +113,9 @@ on every setting. It is a reference copy: the plugin only reads `config.json`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `AutoGC_Enabled` | `true` | Request a collection every `AutoGC_Interval_Minutes`. `ServerPerformance.ForceGC` works either way. |
+| `AutoGC_Enabled` | `false` | Request a collection every `AutoGC_Interval_Minutes`. Off because tuning the engine's own schedule works better (see below). `ServerPerformance.ForceGC` works either way. |
 | `AutoGC_Interval_Minutes` | `15` | 1 to 1440, counted from when the world loaded (and from each reload). |
-| `FullPurge` | `true` | `true`: everything unreachable is destroyed in that frame (one longer frame). `false`: the engine purges over the next frames instead (shorter frames, memory freed more slowly). |
+| `FullPurge` | `false` | `true`: ask for everything unreachable to be destroyed in one frame. `false`: ask for it to be spread over the next frames. On ASA ARK's server does a full purge on every collection anyway, so this makes no practical difference there. |
 
 ### ConsoleVariables
 
@@ -123,7 +128,8 @@ Shipped values:
 
 | Variable | Value | Engine default | Effect |
 |---|---|---|---|
-| `gc.TimeBetweenPurgingPendingKillObjects` | `20` | `60` | Seconds between the engine's own collections. Lower = smaller, more frequent collections. |
+| `gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects` | `300` | `720` (ARK) | Seconds between collections on ARK's dedicated server. ASA only. |
+| `gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier` | `1` | `10` | Multiplier on that interval while no players are on. At 10 an empty map collects every 2 hours. |
 | `gc.NumRetriesBeforeForcingGC` | `5` | `10` | Collections the engine may skip (object tables locked) before it forces one. |
 | `gc.ActorClusteringEnabled` | `1` | `1` | GC clusters per actor. Only affects objects created after it is set. |
 | `t.MaxFPS` | `30` | none | Server frame-rate cap. `0` = no cap. |
@@ -145,6 +151,27 @@ Any other console variable can be added. Some can only be set from an ini before
 engine reports them as read-only, and the plugin logs `not applied`); those belong in `Engine.ini`
 instead. The plugin's log line tells you which case you're in, so it is safe to try.
 
+### Garbage collection on ARK
+
+Measured on a Lost Colony live save on the test server (about 1.9 million objects, 17,000 structures):
+
+- **ARK's dedicated server uses its own interval,** `gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects`
+  (default 720 s). Unreal's `gc.TimeBetweenPurgingPendingKillObjects` is accepted but ignored there.
+- **While nobody is on, that interval is multiplied by 10,** so an empty map collects only every 2 hours
+  and its memory climbs. The shipped multiplier of 1 keeps empty maps collecting; a hitch on an empty
+  server bothers nobody.
+- **Every collection is a full purge in one frame,** even when the engine is asked for an incremental one,
+  and also whenever more than `gc.UnreachableObjectsFullPurgeThreshold` (25,000) objects are waiting.
+- **Each collection costs about 0.2 s however little garbage there is** (the engine scans every live
+  object), plus a little per object destroyed: about 0.25 s at 10,000 objects, 0.6 s at 160,000. So
+  fewer collections beat smaller ones: at 120 s players get a 0.2 s hitch every 2 minutes. 300 s keeps
+  memory flat with one small hitch every 5 minutes.
+- `gc.AllowParallelGC`, `gc.CreateGCClusters` and `gc.UseDisregardForGCOnDedicatedServers` are all on
+  already. The only engine option that shortens the per-collection cost itself is the experimental
+  incremental reachability mode in `config.commented.json`, with the risks described there.
+
+These settings exist only on ASA; on ASE the log shows them as `not found`.
+
 ### Structures
 
 | Setting | Default | Meaning |
@@ -163,6 +190,7 @@ instead. The plugin's log line tells you which case you're in, so it is safe to 
 | `AlsoWriteToApiLog` | `false` | Also write routine messages (stats lines, collections, structure passes) to the API log. |
 | `CountDinosAndStructures` | `true` | Include dino and structure counts (one object lookup of each, only when stats are taken). |
 | `IncludeNetwork` | `true` | Sample every player connection once a second for the network figures (a few field reads per player). |
+| `HitchThreshold_TicksPerSecond` | `25` | Log every second with fewer server frames than this to the stats log, with its length. With `t.MaxFPS 30`, 25 catches garbage collections (~0.25 s) and anything longer. `0` = off. |
 | `LogFileMaxSize_MB` | `5` | Size at which the stats log starts a new file. |
 | `LogFilesKept` | `3` | Old stats log files kept. |
 
@@ -209,13 +237,19 @@ a while under normal load, and put the value you settle on in `config.json`.
   limit, so updates queue up and players see rubber-banding or late updates. Raising `MaxClientRate` /
   `MaxInternetClientRate` in `Engine.ini` helps if the server's upload has room (compare the upload average
   and peak with your line). Lowering what is sent (the structure pass, adaptive replication) helps either way.
+- **`Hitch:` lines in the stats log.** Each is a stall that ended at that time; subtract its length to see
+  when it started, then look at the server log just before. A line every collection interval is garbage
+  collection (about 0.25 s on a big map); one about every 15 minutes is the world save (about 1 s). Several
+  seconds with nothing in the log is often a console window: selecting text in a Windows console window
+  (QuickEdit mode) pauses the whole server until the selection is cleared. Turn QuickEdit off in the
+  console window's Properties, and copy lines from the log files instead.
 - **Tick rate lower than `t.MaxFPS`.** The server can't keep up at that rate under the current load; the
   cap is a ceiling, not a target.
 
 ## Tests
 
 `tests\logic_tests.cpp` covers config parsing and warnings, console-variable name and value checks, reading
-the engine's replies, value comparison, tick-rate and network sampling and the stats text. It needs no game and no
+the engine's replies, value comparison, tick-rate, hitch and network sampling and the stats text. It needs no game and no
 Windows. From a Visual Studio developer prompt in this folder:
 
 ```

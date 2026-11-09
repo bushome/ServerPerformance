@@ -1,11 +1,12 @@
 {
   "GarbageCollection": {
-    "AutoGC_Enabled": true,
+    "AutoGC_Enabled": false,
     "AutoGC_Interval_Minutes": 15,
-    "FullPurge": true
+    "FullPurge": false
   },
   "ConsoleVariables": {
-    "gc.TimeBetweenPurgingPendingKillObjects": 20,
+    "gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects": 300,
+    "gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier": 1,
     "gc.NumRetriesBeforeForcingGC": 5,
     "gc.ActorClusteringEnabled": 1,
     "t.MaxFPS": 30
@@ -31,6 +32,7 @@
     "AlsoWriteToApiLog": false,
     "CountDinosAndStructures": true,
     "IncludeNetwork": true,
+    "HitchThreshold_TicksPerSecond": 25,
     "LogFileMaxSize_MB": 5,
     "LogFilesKept": 3
   }

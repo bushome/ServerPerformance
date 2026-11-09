@@ -49,7 +49,8 @@ static bool HasWarning(const Settings& s, const std::string& part)
 static void TestDefaults()
 {
 	const Settings s = Parse("{}");
-	CHECK(s.auto_gc && s.auto_gc_minutes == 15 && s.full_purge);
+	CHECK(!s.auto_gc && s.auto_gc_minutes == 15 && !s.full_purge);
+	CHECK(Near(s.hitch_threshold, 25.0));
 	CHECK(s.cvars.empty());
 	CHECK(s.cvar_reapply_seconds == 300);
 	CHECK(!s.structures);
@@ -64,15 +65,16 @@ static void TestParsing()
 {
 	const Settings s = Parse(R"({
 		// comments are allowed
-		"GarbageCollection": { "AutoGC_Enabled": false, "AutoGC_Interval_Minutes": 30, "FullPurge": false },
+		"GarbageCollection": { "AutoGC_Enabled": true, "AutoGC_Interval_Minutes": 30, "FullPurge": true },
 		"ConsoleVariables": { "t.MaxFPS": 60, "gc.ActorClusteringEnabled": true, "p.Ratio": 0.25, "r.Mode": "Fast" },
 		"ConsoleVariables_Reapply_Seconds": 0,
 		"Structures": { "Enabled": true, "NetUpdateFrequency": 0.5, "MinNetUpdateFrequency": 0.25,
 			"CheckInterval_Seconds": 60, "ExcludeClassesContaining": [ " Turret ", "Door" ] },
 		"Stats": { "LogInterval_Seconds": 0, "AlsoWriteToApiLog": true, "CountDinosAndStructures": false, "IncludeNetwork": false,
+			"HitchThreshold_TicksPerSecond": 0,
 			"LogFileMaxSize_MB": 10, "LogFilesKept": 5 }
 	})");
-	CHECK(!s.auto_gc && s.auto_gc_minutes == 30 && !s.full_purge);
+	CHECK(s.auto_gc && s.auto_gc_minutes == 30 && s.full_purge);
 	CHECK(s.cvars.size() == 4);
 	// nlohmann sorts object keys, so variables apply in name order
 	CHECK(s.cvars[0].name == "gc.ActorClusteringEnabled" && s.cvars[0].value == "1");
@@ -84,6 +86,7 @@ static void TestParsing()
 	CHECK(s.structure_check_seconds == 60);
 	CHECK(s.structure_exclude.size() == 2 && s.structure_exclude[0] == "Turret");
 	CHECK(s.stats_seconds == 0 && s.stats_to_api_log && !s.count_actors && !s.network);
+	CHECK(Near(s.hitch_threshold, 0.0));
 	CHECK(s.stats_log_max_mb == 10 && s.stats_log_files == 5);
 	CHECK(s.warnings.empty());
 }
@@ -103,7 +106,7 @@ static void TestWarnings()
 		"Stats": 5,
 		"Typo": true
 	})");
-	CHECK(s.auto_gc);                       // bad type keeps the default
+	CHECK(!s.auto_gc);                      // bad type keeps the default
 	CHECK(HasWarning(s, "AutoGC_Enabled"));
 	CHECK(s.auto_gc_minutes == 1);          // clamped
 	CHECK(HasWarning(s, "AutoGC_Interval_Minutes"));
@@ -183,6 +186,21 @@ static void TestHelpers()
 	CHECK(FormatDuration(90061) == "1d 1h 1m");
 }
 
+static void TestHitch()
+{
+	// a normal second at a 30 fps cap
+	CHECK(!DescribeHitch(30, 1.0, 25.0).has_value());
+	// a garbage collection: ~0.25 s lost in one second
+	const std::optional<std::string> gc = DescribeHitch(22, 1.0, 25.0);
+	CHECK(gc.has_value() && gc->find("22 frames in 1.0 s (22.0 per second)") != std::string::npos);
+	// a freeze arrives as one long sample
+	const std::optional<std::string> freeze = DescribeHitch(16, 7.3, 25.0);
+	CHECK(freeze.has_value() && freeze->find("16 frames in 7.3 s (2.2 per second)") != std::string::npos);
+	// threshold 0 turns it off; a zero-length sample is ignored
+	CHECK(!DescribeHitch(1, 10.0, 0.0).has_value());
+	CHECK(!DescribeHitch(0, 0.0, 25.0).has_value());
+}
+
 static void TestTickWindow()
 {
 	TickWindow w;
@@ -244,7 +262,7 @@ static void TestStatsText()
 	Snapshot s;
 	s.uptime_seconds = 3725;
 	s.players = 12;
-	s.tick_samples = 300; s.tick_avg = 29.94; s.tick_min = 18.0; s.tick_max = 30.0;
+	s.tick_samples = 300; s.tick_avg = 29.94; s.tick_min = 18.0; s.tick_max = 30.0; s.hitches = 2;
 	s.uobjects = 1500000; s.uobject_slots = 1600000; s.uobject_capacity = 2162688; s.objects_outside_gc = 400000;
 	s.dinos = 3000; s.structures = 90000;
 	s.working_set_mb = 18432.4; s.peak_working_set_mb = 20000; s.private_mb = 19000; s.system_available_mb = 100000; s.system_total_mb = 262144;
@@ -257,7 +275,7 @@ static void TestStatsText()
 
 	const std::string text = FormatStatsText(s);
 	CHECK(text.find("Uptime 1h 2m, players 12") != std::string::npos);
-	CHECK(text.find("avg 29.9, min 18.0, max 30.0") != std::string::npos);
+	CHECK(text.find("avg 29.9, min 18.0, max 30.0, hitches 2") != std::string::npos);
 	CHECK(text.find("1500000 live, 1600000 slots used of 2162688") != std::string::npos);
 	CHECK(text.find("Dinos 3000, structures 90000") != std::string::npos);
 	CHECK(text.find("working set 18432 MB") != std::string::npos);
@@ -269,6 +287,7 @@ static void TestStatsText()
 
 	const std::string line = FormatStatsLine(s);
 	CHECK(line.find("players=12 tick_avg=29.9") != std::string::npos);
+	CHECK(line.find("hitches=2") != std::string::npos);
 	CHECK(line.find("dinos=3000 structures=90000") != std::string::npos);
 	CHECK(line.find('\n') == std::string::npos);
 	CHECK(line.find("connections=12 out_kbps_avg=850 out_kbps_peak=2100") != std::string::npos);
@@ -276,6 +295,7 @@ static void TestStatsText()
 
 	const nlohmann::json j = StatsJson(s);
 	CHECK(j["players"] == 12);
+	CHECK(j["tick"]["hitches"] == 2);
 	CHECK(j["uobjects"]["live"] == 1500000);
 	CHECK(j["cvars"]["t.MaxFPS"] == "30");
 	CHECK(j["network"]["connections"] == 12);
@@ -293,15 +313,17 @@ static void TestStatsText()
 static void CheckShipped(const Settings& s)
 {
 	CHECK(s.warnings.empty());
-	CHECK(s.auto_gc && s.auto_gc_minutes == 15 && s.full_purge);
-	CHECK(s.cvars.size() == 4);
+	CHECK(!s.auto_gc && s.auto_gc_minutes == 15 && !s.full_purge);
+	CHECK(s.cvars.size() == 5);
 	auto value_of = [&](const std::string& name) -> std::string
 	{
 		for (const CVarSetting& c : s.cvars)
 			if (c.name == name) return c.value;
 		return "";
 	};
-	CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjects") == "20");
+	CHECK(value_of("gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects") == "300");
+	CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier") == "1");
+	CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjects").empty());   // ignored by ARK's dedicated server
 	CHECK(value_of("gc.NumRetriesBeforeForcingGC") == "5");
 	CHECK(value_of("gc.ActorClusteringEnabled") == "1");
 	CHECK(value_of("t.MaxFPS") == "30");
@@ -311,6 +333,7 @@ static void CheckShipped(const Settings& s)
 	CHECK(s.structure_check_seconds == 300);
 	CHECK(s.structure_exclude.size() == 7);
 	CHECK(s.stats_seconds == 300 && !s.stats_to_api_log && s.count_actors && s.network);
+	CHECK(Near(s.hitch_threshold, 25.0));
 	CHECK(s.stats_log_max_mb == 5 && s.stats_log_files == 3);
 }
 
@@ -323,6 +346,7 @@ int main(int argc, char** argv)
 	TestValuesMatch();
 	TestReplyParsing();
 	TestHelpers();
+	TestHitch();
 	TestTickWindow();
 	TestNetWindow();
 	TestStatsText();
