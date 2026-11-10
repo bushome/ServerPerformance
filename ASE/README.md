@@ -190,6 +190,84 @@ Measured on a Lost Colony live save on the test server (about 1.9 million object
 
 These settings exist only on ASA; on ASE the log shows them as `not found`.
 
+### Engine variables reference
+
+Every engine variable this project has looked at, **as found on ASA**. ASE runs an older engine: most of
+the `gc.Primal...`, pause and incremental-reachability variables don't exist there, and the others may
+have different values. Check any of them on an ASE server with `ServerPerformance.CVar <name>`.
+
+**ARK value** is what the ASA 97.18 dedicated server
+reported before this plugin changed anything (read with `ServerPerformance.CVar <name>` on the test
+server); "not read" means nobody has checked it yet, so run that command to see it. **Shipped** is what
+`config.json` sets; anything else is left at ARK's value. All of these can be tried live with
+`ServerPerformance.CVar <name> <value>` unless marked as startup-only.
+
+**Garbage collection: the interval**
+
+| Variable | ARK value | Shipped | What it does | Finding |
+|---|---|---|---|---|
+| `gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects` | 720 | **300** | Seconds between collections on ARK's dedicated server. | Tuned. The one interval ARK's server actually uses. |
+| `gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier` | 10 | **1** | Multiplier on the interval while no players are on. | Tuned. At 10 an empty map collects every 2 hours. |
+| `gc.PrimalDedicatedServerOnlyMemoryPressureTimeBetweenPurgingPendingKillObjects` | 180 | - | Interval ARK uses when the server is under memory pressure. | Untested. |
+| `gc.TimeBetweenPurgingPendingKillObjects` | 61.1 | - | Unreal's own interval. | No effect: accepted but ignored by ARK's dedicated server. |
+| `gc.LowMemory.MemoryThresholdMB` | 0 (off) | - | Below this much free memory, Unreal's low-memory interval applies. | Untested. Commented example in `config.commented.json`. |
+| `gc.LowMemory.TimeBetweenPurgingPendingKillObjects` | not read | - | Interval while in low-memory mode. | Untested. |
+| `gc.NumRetriesBeforeForcingGC` | 10 | **5** | Collections skipped (object tables locked) before one is forced. | Kept from the old setup; effect not measured. |
+
+**Garbage collection: how each collection runs**
+
+| Variable | ARK value | Shipped | What it does | Finding |
+|---|---|---|---|---|
+| `gc.UnreachableObjectsFullPurgeThreshold` | 25000 | - | Waiting objects that force a full purge. | No practical effect: ARK does a full purge on every collection anyway. |
+| `gc.IncrementalGCTimePerFrame` | 0.05 | - | Seconds per frame for an incremental purge. | No practical effect, for the same reason. |
+| `gc.LowMemory.IncrementalGCTimePerFrame` | not read | - | The same, in low-memory mode. | No practical effect expected. |
+| `gc.IncrementalBeginDestroyEnabled` | 1 | - | Destroy objects incrementally with a per-frame time limit. | Already on. |
+| `gc.AllowParallelGC` | 1 | - | Scan objects on several threads. | Already on. Collection time also depends on the cores Process Lasso gives the server. |
+| `gc.CreateGCClusters` | 1 | - | Group objects into clusters for faster scanning. | Already on. |
+| `gc.ActorClusteringEnabled` | 1 | 1 | Cluster an actor's objects together. | Already on; the shipped entry changes nothing. |
+| `gc.UseDisregardForGCOnDedicatedServers` | 1 | - | Keep startup objects out of every scan. | Already on (Stats shows them as "outside GC"). |
+| `gc.MaxObjectsNotConsideredByGC` | startup only | - | Size of that startup pool. | Can only be set in `Engine.ini` before start. |
+| `gc.MaxObjectsInGame` | startup only | - | Size of the object table (Stats shows it as the UObject capacity, 25,231,360). | Can only be set in `Engine.ini`. Plenty of headroom (about 8% used on Lost Colony). |
+| `gc.AllowIncrementalReachability` | 0 | - | **Experimental.** Spread the scan over several frames. | Untested. The only option that shortens the ~0.2 s fixed cost; risky with mods. |
+| `gc.AllowIncrementalGather` | not read | - | **Experimental.** Part of the same mode. | Untested. |
+| `gc.IncrementalReachabilityTimeLimit` | not read | - | **Experimental.** Per-frame budget for that mode. | Untested. |
+
+**Garbage collection: ARK's pause system**
+
+| Variable | ARK value | Shipped | What it does | Finding |
+|---|---|---|---|---|
+| `gc.PauseGCTimeLimitSeconds` | 30 | - | A paused GC resumes after this many seconds. | Not tuned. Nothing found that pauses GC. |
+| `gc.PauseGCFreeMemThresholdMB` | 300 | - | A paused GC resumes when free memory drops below this. | Not tuned. |
+| `gc.PauseGCForceNoFullPurgeOnResume` | not read | - | Drop full-purge requests made while paused. | Untested. |
+| `gc.PauseGCDeferredMapLoadTrim` | not read | - | Map-load memory trim after GC resumes. | Untested. |
+
+**Debug only: never set these on a live server**
+
+| Variable | What it does |
+|---|---|
+| `gc.CollectGarbageEveryFrame` | Collects every N frames. |
+| `gc.ContinuousIncrementalGC` | Starts a new incremental collection as soon as the last one ends. |
+
+**Server tick and replication**
+
+| Variable | ARK value | Shipped | What it does | Finding |
+|---|---|---|---|---|
+| `t.MaxFPS` | 0 (no cap) | **30** | Server frame-rate cap. | Holds a steady 29.9 on Lost Colony. |
+| `net.UseAdaptiveNetUpdateFrequency` | not read | - | Replicate idle actors less often. Also what makes `Structures.MinNetUpdateFrequency` do anything. | Untested. Commented example in `config.commented.json`. |
+| `p.Chaos.MaxSubSteps` | does not exist | - | (Physics substeps in other games.) | Not a console variable in ASA. |
+
+**Network limits (Engine.ini settings, not console variables)**
+
+| Setting | Section | What it does |
+|---|---|---|
+| `MaxClientRate`, `MaxInternetClientRate` | `[/Script/OnlineSubsystemUtils.IpNetDriver]` and `[/script/socketsubsystemepic.epicnetdriver]` | Bytes per second for one player. |
+| `TotalNetBandwidth` | `[/script/engine.gamenetworkmanager]` | Bytes per second for the whole server, shared between its players. |
+| `MaxDynamicBandwidth`, `MinDynamicBandwidth` | `[/script/engine.gamenetworkmanager]` | Range each player's share is kept in. |
+
+Each player gets `TotalNetBandwidth` divided by the number of players, kept between the dynamic minimum
+and maximum. Up to 4 players on a map each get the full 5 MB/s per player at 20 MB/s total. The Network
+line in `ServerPerformance.Stats` shows whether players are hitting their limit ("bandwidth-limited").
+
 ### Structures
 
 | Setting | Default | Meaning |
