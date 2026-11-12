@@ -47,7 +47,7 @@ config problems and errors go to the API log.
 
 **`gc.TimeBetweenPurgingPendingKillObjects` on ASE:** this engine version keeps the time between
 collections as an engine setting, not a console variable. The plugin reads and writes that setting under
-the console-variable name, so the same config works on both games. Other console variables go through the
+the console-variable name. Other console variables go through the
 engine's command processor as on ASA; this older engine has fewer of them, and the log says which ones it
 doesn't know.
 
@@ -141,29 +141,18 @@ Shipped values:
 
 | Variable | Value | Engine default | Effect |
 |---|---|---|---|
-| `gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects` | `300` | `720` (ARK) | Seconds between collections on ARK's dedicated server. ASA only. |
-| `gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier` | `1` | `10` | Multiplier on that interval while no players are on. At 10 an empty map collects every 2 hours. |
-| `gc.NumRetriesBeforeForcingGC` | `5` | `10` | Collections the engine may skip (object tables locked) before it forces one. |
-| `gc.ActorClusteringEnabled` | `1` | `1` | GC clusters per actor. Only affects objects created after it is set. |
+| `gc.TimeBetweenPurgingPendingKillObjects` | `300` | see `ServerPerformance.CVar` | Seconds between collections. An engine setting on ASE, not a console variable; the plugin writes it under this name. Its effect on ASE has not been measured the way the ASA interval was, so watch memory in `ServerPerformance.Stats` after changing it. |
 | `t.MaxFPS` | `30` | none | Server frame-rate cap. `0` = no cap. |
 
-The two `gc.PrimalDedicatedServerOnly...` / `...OnIdleServerMultiplier` entries are ASA-only, and
-`gc.NumRetriesBeforeForcingGC`, `gc.ActorClusteringEnabled` and `t.MaxFPS` are Unreal Engine 5 variables
-ASE's older engine may not have. Any it doesn't have shows in the log as `not found` and does nothing.
-They stay in the shipped file so it is the same as the ASA one; remove them from your ASE servers' copy
-to keep the log clean. To set ASE's collection interval, add `gc.TimeBetweenPurgingPendingKillObjects`
-(the plugin writes ASE's engine setting for it).
+The ASE shipped config differs from the ASA one here. ASA's collection variables
+(`gc.PrimalDedicatedServerOnly...`, `...OnIdleServerMultiplier`, `gc.NumRetriesBeforeForcingGC`,
+`gc.ActorClusteringEnabled`) are not in ASE's game build; setting one only logs
+`not a console variable in this game build`.
 
-**Optional variables, shipped switched off.** `config.commented.json` has these as commented-out lines
-ready to try (remove the `//`, copy into `config.json`, reload). They are for ASA's Unreal Engine 5; ASE's
-older engine probably lacks most of them, and the log will say `not found` for any it doesn't have:
-
-| Variable | Suggested | What it does |
-|---|---|---|
-| `net.UseAdaptiveNetUpdateFrequency` | `1` | Actors that aren't changing are checked for updates less often, down to their minimum rate. Less replication CPU with many actors. Also what makes `Structures.MinNetUpdateFrequency` do anything. |
-| `gc.LowMemory.MemoryThresholdMB` | `16384` | Below this much free memory, the engine collects at the low-memory interval instead. As far as can be told from engine source this is the machine's free memory (shared by all servers on the box), the "machine ... free" figure in Stats. |
-| `gc.LowMemory.TimeBetweenPurgingPendingKillObjects` | `10` | Seconds between collections while in low-memory mode (engine default 30). |
-| `gc.AllowIncrementalReachability`, `gc.AllowIncrementalGather`, `gc.IncrementalReachabilityTimeLimit` | `1`, `1`, `0.002` | **Experimental in the engine.** Spreads each collection's marking over several frames to remove GC stutter. Epic warns that game code holding object references the old way can have objects collected while still in use; ARK and every mod would have to comply. Test server only, with the full mod list, watching for crashes, vanishing items or dinos, or tames turning wild. |
+**Optional variables.** The optional variables offered in the ASA config
+(`net.UseAdaptiveNetUpdateFrequency`, `gc.LowMemory.*`, the incremental-reachability set) are Unreal
+Engine 5 variables and are not in ASE's game build either, so the ASE `config.commented.json` does not
+list them.
 
 Any other console variable can be added. Some can only be set from an ini before the engine starts (the
 engine reports them as read-only, and the plugin logs `not applied`); those belong in `Engine.ini`

@@ -314,18 +314,29 @@ static void CheckShipped(const Settings& s)
 {
 	CHECK(s.warnings.empty());
 	CHECK(!s.auto_gc && s.auto_gc_minutes == 15 && !s.full_purge);
-	CHECK(s.cvars.size() == 5);
 	auto value_of = [&](const std::string& name) -> std::string
 	{
 		for (const CVarSetting& c : s.cvars)
 			if (c.name == name) return c.value;
 		return "";
 	};
-	CHECK(value_of("gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects") == "300");
-	CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier") == "1");
-	CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjects").empty());   // ignored by ARK's dedicated server
-	CHECK(value_of("gc.NumRetriesBeforeForcingGC") == "5");
-	CHECK(value_of("gc.ActorClusteringEnabled") == "1");
+	// The ASA and ASE shipped configs differ only in their console variables.
+	if (!value_of("gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects").empty())
+	{
+		// ASA
+		CHECK(s.cvars.size() == 5);
+		CHECK(value_of("gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects") == "300");
+		CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier") == "1");
+		CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjects").empty());   // ignored by ARK's dedicated server
+		CHECK(value_of("gc.NumRetriesBeforeForcingGC") == "5");
+		CHECK(value_of("gc.ActorClusteringEnabled") == "1");
+	}
+	else
+	{
+		// ASE: the engine's own interval, which the plugin writes as an engine setting
+		CHECK(s.cvars.size() == 2);
+		CHECK(value_of("gc.TimeBetweenPurgingPendingKillObjects") == "300");
+	}
 	CHECK(value_of("t.MaxFPS") == "30");
 	CHECK(s.cvar_reapply_seconds == 300);
 	CHECK(!s.structures);

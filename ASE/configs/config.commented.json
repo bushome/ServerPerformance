@@ -38,66 +38,19 @@
   // Removing a variable from this list and reloading puts it back to the value it had before this
   // plugin first changed it. Unloading the plugin does the same for all of them.
   //
-  // On ASE (Unreal Engine 4), gc.TimeBetweenPurgingPendingKillObjects is not a console variable; the
-  // plugin writes the engine's own setting for it instead, so it can be set on both games. ARK's
-  // gc.PrimalDedicatedServerOnly... settings below exist only on ASA (ASE logs them as not found).
+  // ASE's engine (Unreal Engine 4) has far fewer console variables than ASA's. The ASA collection
+  // settings (gc.PrimalDedicatedServerOnly..., ...OnIdleServerMultiplier, gc.NumRetriesBeforeForcingGC,
+  // gc.ActorClusteringEnabled) and the ASA optional ones (net.UseAdaptiveNetUpdateFrequency,
+  // gc.LowMemory.*, the incremental-reachability set) are not in this game build; setting one only
+  // logs "not a console variable in this game build".
   "ConsoleVariables": {
-    // ---- Optional, off: remove the leading // to try one (on the test server first) ----
-    //
-    // Adaptive replication: actors whose state isn't changing are checked for updates less often,
-    // down to their MinNetUpdateFrequency, and speed back up when they change. Cuts server CPU spent
-    // on replication with many actors. It is also what makes Structures.MinNetUpdateFrequency
-    // (below) do anything. Check the current value first with
-    // ServerPerformance.CVar net.UseAdaptiveNetUpdateFrequency
-    // "net.UseAdaptiveNetUpdateFrequency": 1,
-    //
-    // Low-memory GC: when free physical memory drops to this many MB, the engine collects every
-    // gc.LowMemory.TimeBetweenPurgingPendingKillObjects seconds instead of the normal interval
-    // (engine default 30). As far as can be told from engine source, "free" is the machine's free
-    // physical memory, which is shared by every server on the box (ServerPerformance.Stats shows it
-    // as "machine ... free"). 0 = off (engine default). Example: start collecting faster when the
-    // machine is down to 16 GB free.
-    // "gc.LowMemory.MemoryThresholdMB": 16384,
-    // "gc.LowMemory.TimeBetweenPurgingPendingKillObjects": 10,
-    //
-    // EXPERIMENTAL in the engine. Incremental reachability spreads the marking part of each
-    // collection over several frames (soft limit per frame below) instead of one long frame, which
-    // can remove GC stutter. Epic's own warning: game code must hold object references in a form
-    // this mode tracks, or objects can be collected while still in use. The game and every mod would
-    // have to comply, so only try it on the test server with the full mod list, and watch for
-    // crashes, vanishing items or dinos, or tames turning wild.
-    // "gc.AllowIncrementalReachability": 1,
-    // "gc.AllowIncrementalGather": 1,
-    // "gc.IncrementalReachabilityTimeLimit": 0.002,
-    //
-    // ---- Active ----
-
-    // ARK's dedicated-server garbage collection, measured on a Lost Colony live save (about 1.9
-    // million objects, 17,000 structures):
-    //   * ARK uses its own interval, not gc.TimeBetweenPurgingPendingKillObjects (that one is
-    //     accepted but ignored on the dedicated server). ARK's default is 720 s, and 10x that while
-    //     the server is empty.
-    //   * Every collection is a full purge, done in one frame. Each costs about 0.2 s of server
-    //     time however little garbage there is (scanning every live object), plus a little per
-    //     object destroyed: ~0.25 s at 10,000 objects, ~0.6 s at 160,000.
-    //   * So fewer collections beat smaller ones: a short interval means a 0.2 s hitch every time.
-    //     300 s keeps memory flat with one small hitch every 5 minutes.
-    //   * With the idle multiplier at 10, an empty map collects only every 2 hours and its memory
-    //     climbs. At 1 it collects on the normal schedule; a hitch on an empty server bothers nobody.
-    //
-    // Seconds between collections on the dedicated server (ARK default 720).
-    "gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects": 300,
-
-    // Multiplier on that interval while no players are on (ARK default 10).
-    "gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier": 1,
-
-    // How many times the engine may skip a collection because it couldn't lock the object tables
-    // before it forces one (engine default 10).
-    "gc.NumRetriesBeforeForcingGC": 5,
-
-    // Groups an actor's objects into one GC cluster (engine default on). Only affects objects
-    // created after it is set; the value that counts most is the one at startup.
-    "gc.ActorClusteringEnabled": 1,
+    // Seconds between garbage collections. On ASE this is not a console variable: the plugin reads
+    // and writes the engine's own setting for it under this name. See what the server had before
+    // with ServerPerformance.CVar gc.TimeBetweenPurgingPendingKillObjects. Fewer collections mean
+    // fewer hitches but more memory held between them; the effect of 300 on ASE has not been
+    // measured the way the ASA interval was, so watch memory in ServerPerformance.Stats after
+    // changing it.
+    "gc.TimeBetweenPurgingPendingKillObjects": 300,
 
     // Server frame-rate cap. 0 = no cap. The server's real tick rate is shown by
     // ServerPerformance.Stats, so you can see what a change actually does.

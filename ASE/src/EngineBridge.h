@@ -24,10 +24,9 @@
 namespace Engine
 {
 	// --------------------------------------------------------------------------------------------
-	// Symbols. ArkServerApi reads every function, field and global from the server's PDB, but a name
-	// it doesn't have resolves to offset 0 instead of failing, so each one is checked against a name
-	// that certainly doesn't exist. A missing symbol switches off only the feature that needs it, with
-	// an error in the log.
+	// Symbols. ArkServerApi reads every function, field and global from the server's PDB. Each name
+	// this plugin needs is checked first; a missing symbol switches off only the feature that needs
+	// it, with an error in the log.
 	// --------------------------------------------------------------------------------------------
 
 	namespace Detail
@@ -50,20 +49,46 @@ namespace Engine
 			"UNetConnection.OutPacketsLost", "UNetConnection.QueuedBits",
 		};
 
+		// Newer AseApi builds export a silent lookup that says whether a name exists (FindNativeOffset).
+		// It is looked up at run time so this file builds against either API version; nullptr on an API without it.
+		using FindNativeOffsetFn = bool (*)(const char*, intptr_t*);
+		inline FindNativeOffsetFn NativeFinder()
+		{
+			static const FindNativeOffsetFn finder = []() -> FindNativeOffsetFn
+			{
+				HMODULE api = nullptr;
+				const auto anchor = static_cast<LPVOID (*)(const std::string&)>(&GetDataAddress);
+				if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+						reinterpret_cast<LPCWSTR>(anchor), &api) || api == nullptr)
+					return nullptr;
+				return reinterpret_cast<FindNativeOffsetFn>(reinterpret_cast<void*>(
+					GetProcAddress(api, "?FindNativeOffset@@YA_NPEBDPEA_J@Z")));
+			}();
+			return finder;
+		}
+
+		// Without that export (AseApi 3.56 and older) an unknown name resolves to offset 0, so it is
+		// compared with a name that certainly doesn't exist.
 		inline bool HasFunction(const char* name)
 		{
+			if (const FindNativeOffsetFn find = NativeFinder())
+				return find(name, nullptr);
 			static const LPVOID missing = GetAddress(std::string("ServerPerformance.NoSuchFunction"));
 			return GetAddress(std::string(name)) != missing;
 		}
 
 		inline bool HasData(const char* name)
 		{
+			if (const FindNativeOffsetFn find = NativeFinder())
+				return find(name, nullptr);
 			static const LPVOID missing = GetDataAddress(std::string("Global.ServerPerformanceNoSuchData"));
 			return GetDataAddress(std::string(name)) != missing;
 		}
 
 		inline bool HasField(const char* name)
 		{
+			if (const FindNativeOffsetFn find = NativeFinder())
+				return find(name, nullptr);
 			return GetAddress(static_cast<const void*>(nullptr), std::string(name)) != 0;
 		}
 

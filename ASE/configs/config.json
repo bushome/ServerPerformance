@@ -5,10 +5,7 @@
     "FullPurge": false
   },
   "ConsoleVariables": {
-    "gc.PrimalDedicatedServerOnlyTimeBetweenPurgingPendingKillObjects": 300,
-    "gc.TimeBetweenPurgingPendingKillObjectsOnIdleServerMultiplier": 1,
-    "gc.NumRetriesBeforeForcingGC": 5,
-    "gc.ActorClusteringEnabled": 1,
+    "gc.TimeBetweenPurgingPendingKillObjects": 300,
     "t.MaxFPS": 30
   },
   "ConsoleVariables_Reapply_Seconds": 300,
