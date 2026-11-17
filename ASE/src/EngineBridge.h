@@ -40,6 +40,7 @@ namespace Engine
 		inline bool g_classes = false;     // class lookups, class defaults, class paths
 		inline bool g_structures = false;  // g_classes + object-of-class lookup + NetUpdateFrequency
 		inline bool g_dinos = false;
+		inline bool g_trim = false;              // FMemory.Trim
 		inline bool g_net_connection = false;   // APlayerController.NetConnection
 		inline bool g_net_fields[8] = {};       // the UNetConnection fields in kNetFields order
 
@@ -110,6 +111,7 @@ namespace Engine
 			{ "FConsoleManager.ProcessUserConsoleInput", HasFunction("FConsoleManager.ProcessUserConsoleInput") },
 			{ "UEngine.TimeBetweenPurgingPendingKillObjects", HasField("UEngine.TimeBetweenPurgingPendingKillObjects") },
 			{ "UWorld.ForceGarbageCollection", HasFunction("UWorld.ForceGarbageCollection") },
+			{ "FMemory.Trim", HasFunction("FMemory.Trim") },
 			{ "Global.GFrameCounter", HasData("Global.GFrameCounter") },
 			{ "Global.GUObjectArray", HasData("Global.GUObjectArray") },
 			{ "UObjectBase.InternalIndex", HasField("UObjectBase.InternalIndex") },
@@ -137,6 +139,7 @@ namespace Engine
 		g_exec = ok("Global.IConsoleManager::Singleton") && ok("FConsoleManager.ProcessUserConsoleInput");
 		g_purge_field = engine && ok("UEngine.TimeBetweenPurgingPendingKillObjects");
 		g_gc = ok("UWorld.ForceGarbageCollection");
+		g_trim = ok("FMemory.Trim");
 		g_frames = ok("Global.GFrameCounter");
 		g_objects = ok("Global.GUObjectArray") && ok("UObjectBase.InternalIndex");
 		g_players = ok("UWorld.PlayerControllerList");
@@ -291,6 +294,20 @@ namespace Engine
 			return false;
 		world->ForceGarbageCollection(full_purge);
 		return true;
+	}
+
+	// --------------------------------------------------------------------------------------------
+	// Memory trim
+	// --------------------------------------------------------------------------------------------
+
+	// Asks the engine's memory allocator to hand its cached free memory back to Windows
+	// (FMemory::Trim). Game thread only. Off if this server build has no such function.
+	inline bool HasTrim() { return Detail::g_trim; }
+
+	inline void TrimMemory()
+	{
+		if (Detail::g_trim)
+			NativeCall<void, bool>(nullptr, "FMemory.Trim", true);
 	}
 
 	// --------------------------------------------------------------------------------------------

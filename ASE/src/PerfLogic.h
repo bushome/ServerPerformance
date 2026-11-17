@@ -215,6 +215,13 @@ namespace Perf
 		int auto_gc_minutes = 15;
 		bool full_purge = false;
 
+		// Memory release: a requested collection, which (unlike the engine's scheduled ones on ARK)
+		// lets the server hand memory back to Windows
+		int post_boot_release_minutes = 0;    // once, this long after the world loads; 0 = off
+		int release_above_private_mb = 0;     // whenever private memory is over this; 0 = off
+		int release_cooldown_minutes = 60;    // at least this long between memory-limit releases
+		bool release_trim = false;            // also trim the memory allocator after each release
+
 		// Console variables, applied in this order
 		std::vector<CVarSetting> cvars;
 		int cvar_reapply_seconds = 300;   // 0 = only when loaded or reloaded
@@ -327,6 +334,10 @@ namespace Perf
 		ReadBool(gc, "AutoGC_Enabled", s.auto_gc, "GarbageCollection.", w);
 		ReadInt(gc, "AutoGC_Interval_Minutes", s.auto_gc_minutes, 1, 1440, "GarbageCollection.", w);
 		ReadBool(gc, "FullPurge", s.full_purge, "GarbageCollection.", w);
+		ReadInt(gc, "PostBootRelease_Minutes", s.post_boot_release_minutes, 0, 1440, "GarbageCollection.", w);
+		ReadInt(gc, "ReleaseAbovePrivate_MB", s.release_above_private_mb, 0, 1048576, "GarbageCollection.", w);
+		ReadInt(gc, "ReleaseCooldown_Minutes", s.release_cooldown_minutes, 1, 1440, "GarbageCollection.", w);
+		ReadBool(gc, "ReleaseTrimMemory", s.release_trim, "GarbageCollection.", w);
 
 		if (const nlohmann::json* cvars = Child(root, "ConsoleVariables"))
 		{
@@ -424,6 +435,47 @@ namespace Perf
 		}
 
 		return s;
+	}
+
+	// ------------------------------------------------------------------------------------------
+	// Memory release
+	// ------------------------------------------------------------------------------------------
+
+	// A release for memory pressure is due when private memory is over the limit and the last
+	// release (of any kind; -1 = none yet) is at least the cooldown ago. Times are in seconds.
+	inline bool MemoryReleaseDue(double private_mb, int limit_mb, long long now, long long last_release, int cooldown_minutes)
+	{
+		if (limit_mb <= 0 || private_mb < 0.0 || private_mb <= static_cast<double>(limit_mb))
+			return false;
+		return last_release < 0 || now - last_release >= static_cast<long long>(cooldown_minutes) * 60;
+	}
+
+	inline std::string FormatSignedMb(double mb)
+	{
+		const long long rounded = std::llround(mb);
+		return (rounded > 0 ? "+" : "") + std::to_string(rounded) + " MB";
+	}
+
+	// "Memory release (after boot): private 22100 MB before, 10300 MB 2 min later (-11800 MB)"
+	inline std::string FormatRelease(const std::string& reason, double before_mb, double after_mb, int seconds_later)
+	{
+		std::string out = "Memory release (" + reason + "): private ";
+		if (before_mb < 0 || after_mb < 0)
+			return out + "memory unavailable";
+		const std::string later = seconds_later % 60 == 0 ? std::to_string(seconds_later / 60) + " min" : std::to_string(seconds_later) + " s";
+		out += FormatNumber(std::round(before_mb)) + " MB before, " + FormatNumber(std::round(after_mb)) + " MB " + later + " later ("
+			+ FormatSignedMb(after_mb - before_mb) + ")";
+		return out;
+	}
+
+	// "Memory trim: private 22100 -> 10300 MB (-11800 MB), working set 22000 -> 10200 MB (-11800 MB)"
+	inline std::string FormatTrim(double private_before, double private_after, double ws_before, double ws_after)
+	{
+		if (private_before < 0 || private_after < 0 || ws_before < 0 || ws_after < 0)
+			return "Memory trim: done (memory figures unavailable)";
+		return "Memory trim: private " + FormatNumber(std::round(private_before)) + " -> " + FormatNumber(std::round(private_after))
+			+ " MB (" + FormatSignedMb(private_after - private_before) + "), working set " + FormatNumber(std::round(ws_before))
+			+ " -> " + FormatNumber(std::round(ws_after)) + " MB (" + FormatSignedMb(ws_after - ws_before) + ")";
 	}
 
 	// True when a structure's class path contains one of the exclusion entries (case-insensitive).

@@ -17,6 +17,9 @@ game thread.
   `ConsoleVariables_Reapply_Seconds` the plugin reads them again and sets back any that something else has
   changed. The value each variable had before the plugin first changed it is remembered: removing it from
   the config and reloading, or unloading the plugin, puts that value back.
+- **Memory reports.** Every requested collection is followed by a before/after memory report, and
+  `ServerPerformance.TrimMemory` tests the allocator trim. Optional collections after boot or over a
+  memory limit are off by default (see [Memory after a boot](#memory-after-a-boot)).
 - **Garbage collection.** The shipped config tunes the engine's own collection schedule through
   `ConsoleVariables` (see [Garbage collection on ARK](#garbage-collection-on-ark)). The plugin can also
   request collections itself every `AutoGC_Interval_Minutes` (`UWorld::ForceGarbageCollection`; off by default),
@@ -129,6 +132,10 @@ on every setting. It is a reference copy: the plugin only reads `config.json`.
 | `AutoGC_Enabled` | `false` | Request a collection every `AutoGC_Interval_Minutes`. Off because tuning the engine's own schedule works better (see below). `ServerPerformance.ForceGC` works either way. |
 | `AutoGC_Interval_Minutes` | `15` | 1 to 1440, counted from when the world loaded (and from each reload). |
 | `FullPurge` | `false` | `true`: ask for everything unreachable to be destroyed in one frame. `false`: ask for it to be spread over the next frames. On ASA ARK's server does a full purge on every collection anyway, so this makes no practical difference there. |
+| `PostBootRelease_Minutes` | `0` | One requested collection this many minutes after the map loads. `0` = off. See [Memory after a boot](#memory-after-a-boot). |
+| `ReleaseAbovePrivate_MB` | `0` | Also release whenever the server's private memory is over this many MB (checked every 10 s). `0` = off. |
+| `ReleaseCooldown_Minutes` | `60` | At least this long between memory-limit releases. 1 to 1440. |
+| `ReleaseTrimMemory` | `false` | 10 s after each release, also have the memory allocator hand its free memory back to Windows. Measured to free almost nothing on ASA. |
 
 ### ConsoleVariables
 
@@ -178,6 +185,25 @@ Measured on a Lost Colony live save on the test server (about 1.9 million object
   incremental reachability mode in `config.commented.json`, with the risks described there.
 
 These settings exist only on ASA; on ASE the log shows them as `not found`.
+
+#### Memory after a boot
+
+ARK servers load most of what they need at startup and keep it resident; the engine's routine
+collections destroy objects but don't make the process smaller. Measured on the live ASA cluster:
+
+- A requested collection (`ServerPerformance.ForceGC`) did not lower private memory (17.8 GB before
+  and after).
+- `ServerPerformance.TrimMemory` (the engine allocator handing back its free memory) freed 18 MB.
+- An earlier drop on every server at once (Astraeos 22 to 10 GB, Center 13.9 to 5.3 GB and so on,
+  except the one server that hadn't restarted) was most likely Windows trimming the processes'
+  working sets, not anything inside the servers.
+
+So `PostBootRelease_Minutes`, `ReleaseAbovePrivate_MB` and `ReleaseTrimMemory` are off by default.
+To keep resident memory down on a full box, trim working sets from outside the server (for example a
+Process Lasso watchdog rule on a memory threshold). Trimmed pages that the server touches again are
+read back in, so watch the hitch log after turning that on; garbage collection visits every live
+object each time it runs. The stats log records private memory and working set side by side, which
+tells the two kinds of drop apart.
 
 ### Engine variables reference
 
@@ -290,7 +316,8 @@ All on RCON, or in the in-game console as an admin (`cheat ServerPerformance.Sta
 | `ServerPerformance.CVar <name>` | The engine's current value of any console variable. |
 | `ServerPerformance.CVar <name> <value>` | Sets it now and confirms the engine took it. Not saved: add it to `ConsoleVariables` to keep it. A variable that is also in the config goes back to the config value on the next reapply. |
 | `ServerPerformance.CVars` | Each configured variable: wanted value, engine value, status (`applied`, `rejected`, `not found`), the value it had before, and the engine's reason if refused. |
-| `ServerPerformance.ForceGC [full\|quick]` | Requests a collection now (default: `FullPurge` from the config). |
+| `ServerPerformance.ForceGC [full\|quick]` | Requests a collection now (default: `FullPurge` from the config). 2 minutes later a `Memory release (command)` line in the API log and stats log shows private memory before and after. |
+| `ServerPerformance.TrimMemory` | Has the engine's memory allocator hand its cached free memory back to Windows straight away (no collection), and replies with private memory and working set before and after. For testing whether the trim alone frees memory. |
 | `ServerPerformance.Reload` | Re-reads `config.json`. If the file has a mistake, the old settings stay and the error is reported. Variables removed from the config go back to their earlier values. |
 
 **Tuning a variable:** read it with `ServerPerformance.CVar <name>`, set a trial value with

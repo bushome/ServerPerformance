@@ -23,7 +23,31 @@
     // incremental purge spread over the next frames. On ASA this makes no difference in practice:
     // ARK's dedicated server does a full purge on every collection, and also when more than
     // gc.UnreachableObjectsFullPurgeThreshold objects (25000) are waiting.
-    "FullPurge": false
+    "FullPurge": false,
+
+    // Memory release. Each release below is one requested collection (a hiccup of a fraction of a
+    // second), followed 2 minutes later by a "Memory release" line in the API log and stats log with
+    // private memory before and after. Both are off by default: on the live ASA cluster a requested
+    // collection did not lower private memory (17.8 GB before and after on 2026-11-15). An earlier
+    // cluster-wide drop that looked like one was most likely Windows trimming the processes' working
+    // sets. To keep resident memory down, trim working sets from outside the server instead (for
+    // example a Process Lasso watchdog rule).
+    //
+    // Minutes after the map loads to do one release; 0 = off.
+    "PostBootRelease_Minutes": 0,
+
+    // Also release whenever this server's private memory is over this many MB (checked every 10
+    // seconds); 0 = off.
+    "ReleaseAbovePrivate_MB": 0,
+
+    // At least this many minutes between memory-limit releases, 1 to 1440.
+    "ReleaseCooldown_Minutes": 60,
+
+    // true: 10 seconds after each release (post-boot, memory-limit or timed), also tell the memory
+    // allocator to hand its cached free memory back to Windows (the same call the engine makes after
+    // loading a map). On the live ASA cluster ServerPerformance.TrimMemory freed only 18 MB of
+    // 17.8 GB, so this is off.
+    "ReleaseTrimMemory": false
   },
 
   // Engine console variables to set, "name": value. Applied in name order when the server has a

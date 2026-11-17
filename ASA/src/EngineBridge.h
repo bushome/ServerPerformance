@@ -27,6 +27,7 @@ namespace Engine
 	inline constexpr const char* kFunctions[] = {
 		"FConsoleManager.ProcessUserConsoleInput(wchar_t*,FOutputDevice&,UWorld*)",
 		"UEngine.ForceGarbageCollection(bool)",
+		"FMemory.Trim(bool)",
 		"Global.GetObjectsOfClass(UClass*,TArray<UObject*,TSizedDefaultAllocator<32>>&,bool,EObjectFlags,EInternalObjectFlags)",
 		"UClass.GetDefaultObject(bool)",
 		"UVictoryCore.ClassToStringReference(TSubclassOf<UObject>)",
@@ -162,6 +163,19 @@ namespace Engine
 			return false;
 		engine->ForceGarbageCollection(full_purge);
 		return true;
+	}
+
+	// --------------------------------------------------------------------------------------------
+	// Memory trim
+	// --------------------------------------------------------------------------------------------
+
+	// Asks the engine's memory allocator to hand its cached free memory back to Windows
+	// (FMemory::Trim, the same call the engine makes after loading a map). Game thread only.
+	inline bool HasTrim() { return true; }
+
+	inline void TrimMemory()
+	{
+		NativeCall<void, bool>(nullptr, "FMemory.Trim(bool)", true);
 	}
 
 	// --------------------------------------------------------------------------------------------

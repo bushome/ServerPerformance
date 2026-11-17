@@ -2,7 +2,11 @@
   "GarbageCollection": {
     "AutoGC_Enabled": false,
     "AutoGC_Interval_Minutes": 15,
-    "FullPurge": false
+    "FullPurge": false,
+    "PostBootRelease_Minutes": 0,
+    "ReleaseAbovePrivate_MB": 0,
+    "ReleaseCooldown_Minutes": 60,
+    "ReleaseTrimMemory": false
   },
   "ConsoleVariables": {
     "gc.TimeBetweenPurgingPendingKillObjects": 300,

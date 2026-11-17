@@ -4,6 +4,9 @@
 //     engine to confirm they took, and re-checked every ConsoleVariables_Reapply_Seconds. The value
 //     each one had before this plugin changed it is kept and restored when it is removed from the
 //     config or the plugin unloads.
+//   * Memory reports: every requested collection is followed by a before/after memory report.
+//     Optional requested collections after boot or over a memory limit (off by default).
+//     ServerPerformance.TrimMemory trims the engine's allocator and reports the result.
 //   * Optional timed garbage collection (off by default): a collection is requested from the engine
 //     every AutoGC_Interval_Minutes; the engine runs it at its next safe point in the frame. The
 //     shipped config instead tunes ARK's own collection schedule through ConsoleVariables.
@@ -323,6 +326,86 @@ namespace
 	}
 
 	// ------------------------------------------------------------------------------------------
+	// Memory release
+	//
+	// Optional requested collections after boot or over a memory limit (both off by default). Every
+	// requested collection, including ForceGC, is followed by a memory report 2 minutes later, so its
+	// effect is visible; optionally also an allocator trim. On the live ASA cluster neither a
+	// requested collection nor the trim lowered private memory (2026-11-15).
+	// ------------------------------------------------------------------------------------------
+
+	constexpr int kReleaseReportSeconds = 120;   // memory is read again this long after a request
+	constexpr int kReleaseTrimSeconds = 10;      // the trim waits for the collection to have run
+
+	long long g_world_ready_clock = 0;
+	bool g_post_boot_done = false;
+	long long g_last_release = -1;
+	long long g_next_memory_check = 0;
+
+	struct PendingRelease
+	{
+		bool active = false;
+		std::string reason;
+		double before_mb = -1.0;
+		long long trim_at = -1;
+		long long report_at = 0;
+	};
+	PendingRelease g_release;
+
+	// Writes to the API log and the stats log: a release's result is worth seeing in both.
+	void ReportImportant(const std::string& text)
+	{
+		Log::GetLog()->info("{}", text);
+		if (g_stats_log)
+			g_stats_log->info("{}", text);
+	}
+
+	bool StartRelease(const std::string& reason, bool full_purge, bool trim)
+	{
+		const double before = Engine::Memory().private_mb;
+		if (!RequestGC(full_purge, reason.c_str()))
+			return false;
+		g_last_release = g_clock;
+		g_release = PendingRelease{ true, reason, before, trim && Engine::HasTrim() ? g_clock + kReleaseTrimSeconds : -1,
+			g_clock + kReleaseReportSeconds };
+		return true;
+	}
+
+	// Called every second once the world is up.
+	void UpdateMemoryRelease()
+	{
+		const long long post_boot_at = g_world_ready_clock + static_cast<long long>(g_settings.post_boot_release_minutes) * 60;
+		if (g_settings.post_boot_release_minutes > 0 && !g_post_boot_done && g_clock >= post_boot_at)
+		{
+			g_post_boot_done = true;
+			StartRelease("after boot", true, g_settings.release_trim);
+		}
+
+		if (g_settings.release_above_private_mb > 0 && g_clock >= g_next_memory_check)
+		{
+			g_next_memory_check = g_clock + 10;
+			const double private_mb = Engine::Memory().private_mb;
+			if (!g_release.active && Perf::MemoryReleaseDue(private_mb, g_settings.release_above_private_mb, g_clock, g_last_release,
+				g_settings.release_cooldown_minutes))
+				StartRelease("private memory over " + std::to_string(g_settings.release_above_private_mb) + " MB", true,
+					g_settings.release_trim);
+		}
+
+		if (!g_release.active)
+			return;
+		if (g_release.trim_at >= 0 && g_clock >= g_release.trim_at)
+		{
+			g_release.trim_at = -1;
+			Engine::TrimMemory();
+		}
+		if (g_clock >= g_release.report_at)
+		{
+			g_release.active = false;
+			ReportImportant(Perf::FormatRelease(g_release.reason, g_release.before_mb, Engine::Memory().private_mb, kReleaseReportSeconds));
+		}
+	}
+
+	// ------------------------------------------------------------------------------------------
 	// Structures
 	// ------------------------------------------------------------------------------------------
 
@@ -567,6 +650,7 @@ namespace
 			if (!g_world_ready)
 			{
 				g_world_ready = true;
+				g_world_ready_clock = g_clock;
 				ApplyAllCVars();
 				Schedule();
 				return;
@@ -575,9 +659,11 @@ namespace
 			if (g_settings.cvar_reapply_seconds > 0 && g_clock % g_settings.cvar_reapply_seconds == 0)
 				ReapplyCVars();
 
+			UpdateMemoryRelease();
+
 			if (g_settings.auto_gc && g_clock >= g_next_gc)
 			{
-				RequestGC(g_settings.full_purge, "timed");
+				StartRelease("timed", g_settings.full_purge, g_settings.release_trim);
 				g_next_gc = g_clock + static_cast<long long>(g_settings.auto_gc_minutes) * 60;
 			}
 
@@ -646,10 +732,22 @@ namespace
 			else if (mode == "quick" || mode == "incremental") full = false;
 			else return "Usage: " PROJECT_NAME ".ForceGC [full|quick]";
 		}
-		if (!RequestGC(full, "command"))
+		if (!StartRelease("command", full, false))
 			return PROJECT_NAME ": the engine is not available";
 		return std::string(PROJECT_NAME ": garbage collection requested (") + (full ? "full purge" : "incremental purge")
-			+ "); the engine runs it on its next frame";
+			+ "); the engine runs it on its next frame. A memory report follows in the log in 2 minutes";
+	}
+
+	std::string CmdTrimMemory(const std::vector<std::string>&)
+	{
+		if (!Engine::HasTrim())
+			return PROJECT_NAME ": this server build has no memory trim function";
+		const Engine::MemoryInfo before = Engine::Memory();
+		Engine::TrimMemory();
+		const Engine::MemoryInfo after = Engine::Memory();
+		const std::string report = Perf::FormatTrim(before.private_mb, after.private_mb, before.working_set_mb, after.working_set_mb);
+		ReportImportant(report + " (command)");
+		return report;
 	}
 
 	std::string CmdCVar(const std::vector<std::string>& args)
@@ -716,6 +814,7 @@ namespace
 		{ PROJECT_NAME ".Reload", &CmdReload },
 		{ PROJECT_NAME ".Stats", &CmdStats },
 		{ PROJECT_NAME ".ForceGC", &CmdForceGC },
+		{ PROJECT_NAME ".TrimMemory", &CmdTrimMemory },
 		{ PROJECT_NAME ".CVar", &CmdCVar },
 		{ PROJECT_NAME ".CVars", &CmdCVars },
 	};

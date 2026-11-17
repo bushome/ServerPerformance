@@ -50,6 +50,8 @@ static void TestDefaults()
 {
 	const Settings s = Parse("{}");
 	CHECK(!s.auto_gc && s.auto_gc_minutes == 15 && !s.full_purge);
+	CHECK(s.post_boot_release_minutes == 0 && s.release_above_private_mb == 0);
+	CHECK(s.release_cooldown_minutes == 60 && !s.release_trim);
 	CHECK(Near(s.hitch_threshold, 25.0));
 	CHECK(s.cvars.empty());
 	CHECK(s.cvar_reapply_seconds == 300);
@@ -65,7 +67,8 @@ static void TestParsing()
 {
 	const Settings s = Parse(R"({
 		// comments are allowed
-		"GarbageCollection": { "AutoGC_Enabled": true, "AutoGC_Interval_Minutes": 30, "FullPurge": true },
+		"GarbageCollection": { "AutoGC_Enabled": true, "AutoGC_Interval_Minutes": 30, "FullPurge": true,
+			"PostBootRelease_Minutes": 45, "ReleaseAbovePrivate_MB": 16000, "ReleaseCooldown_Minutes": 120, "ReleaseTrimMemory": true },
 		"ConsoleVariables": { "t.MaxFPS": 60, "gc.ActorClusteringEnabled": true, "p.Ratio": 0.25, "r.Mode": "Fast" },
 		"ConsoleVariables_Reapply_Seconds": 0,
 		"Structures": { "Enabled": true, "NetUpdateFrequency": 0.5, "MinNetUpdateFrequency": 0.25,
@@ -75,6 +78,8 @@ static void TestParsing()
 			"LogFileMaxSize_MB": 10, "LogFilesKept": 5 }
 	})");
 	CHECK(s.auto_gc && s.auto_gc_minutes == 30 && s.full_purge);
+	CHECK(s.post_boot_release_minutes == 45 && s.release_above_private_mb == 16000);
+	CHECK(s.release_cooldown_minutes == 120 && s.release_trim);
 	CHECK(s.cvars.size() == 4);
 	// nlohmann sorts object keys, so variables apply in name order
 	CHECK(s.cvars[0].name == "gc.ActorClusteringEnabled" && s.cvars[0].value == "1");
@@ -184,6 +189,29 @@ static void TestHelpers()
 	CHECK(FormatDuration(59) == "59s");
 	CHECK(FormatDuration(3725) == "1h 2m");
 	CHECK(FormatDuration(90061) == "1d 1h 1m");
+}
+
+static void TestMemoryRelease()
+{
+	// over the limit, never released: due
+	CHECK(MemoryReleaseDue(20000, 16000, 1000, -1, 60));
+	// under or at the limit, or limit off, or memory unknown: not due
+	CHECK(!MemoryReleaseDue(15000, 16000, 1000, -1, 60));
+	CHECK(!MemoryReleaseDue(16000, 16000, 1000, -1, 60));
+	CHECK(!MemoryReleaseDue(20000, 0, 1000, -1, 60));
+	CHECK(!MemoryReleaseDue(-1, 16000, 1000, -1, 60));
+	// cooldown: 60 minutes since the last release
+	CHECK(!MemoryReleaseDue(20000, 16000, 1000 + 3599, 1000, 60));
+	CHECK(MemoryReleaseDue(20000, 16000, 1000 + 3600, 1000, 60));
+
+	CHECK(FormatRelease("after boot", 22100.4, 10300.2, 120) ==
+		"Memory release (after boot): private 22100 MB before, 10300 MB 2 min later (-11800 MB)");
+	CHECK(FormatRelease("command", 10000, 10050, 90).find("10050 MB 90 s later (+50 MB)") != std::string::npos);
+	CHECK(FormatRelease("command", -1, 10000, 120).find("unavailable") != std::string::npos);
+	CHECK(FormatTrim(22100, 10300, 22000, 10200) ==
+		"Memory trim: private 22100 -> 10300 MB (-11800 MB), working set 22000 -> 10200 MB (-11800 MB)");
+	CHECK(FormatTrim(-1, 0, 0, 0).find("unavailable") != std::string::npos);
+	CHECK(FormatSignedMb(0) == "0 MB");
 }
 
 static void TestHitch()
@@ -314,6 +342,8 @@ static void CheckShipped(const Settings& s)
 {
 	CHECK(s.warnings.empty());
 	CHECK(!s.auto_gc && s.auto_gc_minutes == 15 && !s.full_purge);
+	CHECK(s.post_boot_release_minutes == 0 && s.release_above_private_mb == 0);
+	CHECK(s.release_cooldown_minutes == 60 && !s.release_trim);
 	auto value_of = [&](const std::string& name) -> std::string
 	{
 		for (const CVarSetting& c : s.cvars)
@@ -357,6 +387,7 @@ int main(int argc, char** argv)
 	TestValuesMatch();
 	TestReplyParsing();
 	TestHelpers();
+	TestMemoryRelease();
 	TestHitch();
 	TestTickWindow();
 	TestNetWindow();
